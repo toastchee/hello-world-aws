@@ -227,6 +227,12 @@ resource "aws_apigatewayv2_route" "get_hello" {
   target    = "integrations/${aws_apigatewayv2_integration.producer.id}"
 }
 
+resource "aws_apigatewayv2_route" "post_hello" {
+  api_id    = aws_apigatewayv2_api.hello_world.id
+  route_key = "POST /hello"
+  target    = "integrations/${aws_apigatewayv2_integration.producer.id}"
+}
+
 resource "aws_apigatewayv2_integration" "frontend" {
   api_id                 = aws_apigatewayv2_api.hello_world.id
   integration_type       = "AWS_PROXY"
