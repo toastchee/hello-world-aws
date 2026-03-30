@@ -153,6 +153,60 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   batch_size       = 10
 }
 
+# ─── Lambda: Frontend ─────────────────────────────────────────────────────────
+
+resource "aws_iam_role" "frontend" {
+  name               = "hello-world-frontend-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "frontend_basic" {
+  role       = aws_iam_role.frontend.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "frontend_dynamodb" {
+  name = "dynamodb-read"
+  role = aws_iam_role.frontend.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["dynamodb:Scan"]
+      Resource = aws_dynamodb_table.greetings.arn
+    }]
+  })
+}
+
+data "archive_file" "frontend" {
+  type        = "zip"
+  source_file = "${path.module}/../frontend.py"
+  output_path = "${path.module}/../frontend.zip"
+}
+
+resource "aws_lambda_function" "frontend" {
+  function_name    = "hello-world-frontend"
+  role             = aws_iam_role.frontend.arn
+  runtime          = "python3.12"
+  handler          = "frontend.handler"
+  filename         = data.archive_file.frontend.output_path
+  source_code_hash = data.archive_file.frontend.output_base64sha256
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.greetings.name
+    }
+  }
+}
+
+resource "aws_lambda_permission" "apigw_frontend" {
+  statement_id  = "AllowAPIGatewayInvokeFrontend"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.frontend.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.hello_world.execution_arn}/*/*"
+}
+
 # ─── API Gateway ──────────────────────────────────────────────────────────────
 
 resource "aws_apigatewayv2_api" "hello_world" {
@@ -171,6 +225,19 @@ resource "aws_apigatewayv2_route" "get_hello" {
   api_id    = aws_apigatewayv2_api.hello_world.id
   route_key = "GET /hello"
   target    = "integrations/${aws_apigatewayv2_integration.producer.id}"
+}
+
+resource "aws_apigatewayv2_integration" "frontend" {
+  api_id                 = aws_apigatewayv2_api.hello_world.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.frontend.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "get_root" {
+  api_id    = aws_apigatewayv2_api.hello_world.id
+  route_key = "GET /"
+  target    = "integrations/${aws_apigatewayv2_integration.frontend.id}"
 }
 
 resource "aws_apigatewayv2_stage" "default" {

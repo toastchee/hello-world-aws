@@ -8,7 +8,7 @@ QUEUE_URL = os.environ["QUEUE_URL"]
 
 def handler(event, context):
     params = event.get("queryStringParameters") or {}
-    name = params.get("name", "World")
+    name = params.get("name") or "World"
 
     sqs.send_message(
         QueueUrl=QUEUE_URL,
@@ -16,6 +16,6 @@ def handler(event, context):
     )
 
     return {
-        "statusCode": 200,
-        "body": json.dumps({"message": f"Hola, {name}!", "queued": True})
+        "statusCode": 302,
+        "headers": {"Location": "/"},
     }
